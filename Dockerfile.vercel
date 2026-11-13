@@ -1,0 +1,99 @@
+# Builds the example backend from source and runs it as a Vercel container.
+# The build stage installs dependencies and builds example-backend. The final
+# stage matches packages/backend/Dockerfile, including SQLite and the local
+# TechDocs generator.
+#
+# This file is paired with Dockerfile.vercel.dockerignore. The repo
+# .dockerignore is for the host-build image and drops plugin and package
+# source, which this build needs.
+
+FROM node:24-trixie-slim AS build
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libsqlite3-dev python3 build-essential && \
+    corepack enable
+
+ENV PYTHON=/usr/bin/python3
+
+WORKDIR /app
+RUN chown node:node /app
+USER node
+
+COPY --chown=node:node . .
+
+# The repo typecheck reserves an 8GB heap, which does not fit the standard
+# build machine. The backend package build compiles from source through the
+# local CLI, so that typecheck is not required to produce the image.
+ENV HUSKY=0
+ENV YARN_ENABLE_GLOBAL_CACHE=false
+
+RUN yarn install --immutable
+RUN NODE_OPTIONS=--max-old-space-size=5120 yarn workspace example-backend build
+
+FROM node:24-trixie-slim
+
+# Install sqlite3 dependencies. You can skip this if you don't use sqlite3 in the image,
+# in which case you should also move better-sqlite3 to "devDependencies" in package.json.
+# Additionally, we install dependencies for `techdocs.generator.runIn: local`.
+# https://backstage.io/docs/features/techdocs/getting-started#disabling-docker-in-docker-situation-optional
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends libsqlite3-dev python3 python3-pip python3-venv build-essential && \
+    corepack enable && \
+    yarn config set python /usr/bin/python3
+
+ENV PYTHON=/usr/bin/python3
+
+# Set up a virtual environment for mkdocs-techdocs-core.
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
+RUN pip3 install mkdocs-techdocs-core==1.1.7
+
+# From here on we use the least-privileged `node` user to run the backend.
+WORKDIR /app
+RUN chown node:node /app
+USER node
+
+# This switches many Node.js dependencies to production mode.
+ENV NODE_ENV=production
+ENV HUSKY=0
+ENV YARN_ENABLE_GLOBAL_CACHE=false
+
+# Copy over Yarn configuration, release, and plugins
+COPY --from=build --chown=node:node /app/.yarn ./.yarn
+COPY --from=build --chown=node:node /app/.yarnrc.yml ./
+
+# The skeleton contains the package.json of each package in the monorepo,
+# and along with yarn.lock and the root package.json, that's enough to install.
+COPY --from=build --chown=node:node /app/yarn.lock /app/package.json /app/packages/backend/dist/skeleton.tar.gz ./
+RUN tar xzf skeleton.tar.gz && rm skeleton.tar.gz
+
+RUN yarn workspaces focus --all --production
+
+# Then copy the rest of the backend bundle, along with any other files we might want.
+COPY --from=build --chown=node:node /app/packages/backend/dist/bundle.tar.gz ./
+RUN tar xzf bundle.tar.gz && rm bundle.tar.gz
+
+COPY --chown=node:node app-config*.yaml ./
+
+# The example database client is an optional peer, so production install omits
+# it. Install it on its own so Yarn does not re-resolve the workspace.
+RUN mkdir -p /tmp/sqlite \
+ && cd /tmp/sqlite \
+ && npm init -y \
+ && npm install --install-strategy=nested better-sqlite3@12.11.1 \
+ && cp -a node_modules/better-sqlite3 /app/node_modules/better-sqlite3
+
+# Catalog file locations are resolved from the backend working directory.
+COPY --from=build --chown=node:node /app/packages/catalog-model/examples /app/packages/catalog-model/examples
+COPY --from=build --chown=node:node /app/plugins/techdocs-backend/examples /app/plugins/techdocs-backend/examples
+COPY --from=build --chown=node:node /app/plugins/scaffolder-backend/sample-templates /app/plugins/scaffolder-backend/sample-templates
+
+# Vercel starts the container with cwd /, ignoring WORKDIR. The example catalog
+# paths are relative to packages/backend.
+CMD ["sh", "-c", "cd /app/packages/backend && exec node . --config /app/app-config.yaml --config /app/app-config.vercel.yaml"]

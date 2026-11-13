@@ -150,6 +150,9 @@ site
 *.local.yaml
 !packages/create-app/templates/legacy-app/app-config.local.yaml
 
+# Vercel local project link
+.vercel/
+
 # Sensitive credentials
 *-credentials.yaml
 
@@ -191,3 +194,5 @@ dist-storybook/
 # Personal allow patterns etc
 .claude/settings.local.json
 .claude/worktrees/
+.vercel
+.env*

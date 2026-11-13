@@ -1,0 +1,41 @@
+# Overrides for the Vercel container. Loaded after app-config.yaml.
+# VERCEL_URL is the deployment hostname without a scheme.
+app:
+  baseUrl: https://${VERCEL_URL}
+  title: Modernize Utah
+  description: Modernize Utah is a Non-Profit organization that helps non-profits, community organizations, and schools modernize their technology stack.
+
+backend:
+  baseUrl: https://${VERCEL_URL}
+  cors:
+    origin: https://${VERCEL_URL}
+  # Neon gives this project one database. Each plugin gets its own schema.
+  database:
+    client: pg
+    pluginDivisionMode: schema
+    ensureExists: false
+    ensureSchemaExists: true
+    connection:
+      host: ${POSTGRES_HOST}
+      user: ${POSTGRES_USER}
+      password: ${POSTGRES_PASSWORD}
+      database: ${POSTGRES_DATABASE}
+      ssl: true
+
+# The container has no Docker socket. The image installs mkdocs-techdocs-core
+# so the local generator can build docs.
+techdocs:
+  generator:
+    runIn: local
+
+# NODE_ENV is production in the image. Allow the example guest sign-in, and
+# supply the github provider values that app-config.yaml requires so auth
+# startup does not fail when those environment variables are unset.
+auth:
+  providers:
+    guest:
+      dangerouslyAllowOutsideDevelopment: false
+    github:
+      development:
+        clientId: ${AUTH_GITHUB_CLIENT_ID}
+        clientSecret: ${AUTH_GITHUB_CLIENT_SECRET}
