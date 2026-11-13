@@ -11,6 +11,12 @@ backend:
     origin: https://${VERCEL_URL}
   # Neon gives this project one database. Each plugin gets its own schema.
   database:
+    knexConfig:
+      pool:
+        min: 0
+        max: 2
+        acquireTimeoutMillis: 60000
+        idleTimeoutMillis: 10000
     client: pg
     pluginDivisionMode: schema
     ensureExists: false
