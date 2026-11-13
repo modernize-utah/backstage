@@ -40,6 +40,7 @@ import { pluginInfoResolver } from './pluginInfoResolver';
 import { appModuleNav } from './modules/appModuleNav';
 import { appModuleHome } from './modules/appModuleHome';
 import { appModuleScaffolder } from './modules/appModuleScaffolder';
+import { appModuleSignIn } from './modules/appModuleSignIn';
 import { brandedApp } from './theme/modernizeUtahTheme';
 import catalogPlugin from '@backstage/plugin-catalog/alpha';
 import InfoIcon from '@material-ui/icons/Info';
@@ -98,6 +99,7 @@ const app = createApp({
     appModuleNav,
     appModuleHome,
     appModuleScaffolder,
+    appModuleSignIn,
     ...collectedLegacyPlugins,
   ],
   advanced: {
