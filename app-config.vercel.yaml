@@ -16,7 +16,7 @@ backend:
     ensureExists: false
     ensureSchemaExists: true
     connection:
-      host: ${POSTGRES_HOST}
+      host: ${PGHOST_UNPOOLED}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
       database: ${POSTGRES_DATABASE}
