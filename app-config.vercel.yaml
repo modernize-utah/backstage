@@ -1,14 +1,14 @@
 # Overrides for the Vercel container. Loaded after app-config.yaml.
-# VERCEL_URL is the deployment hostname without a scheme.
+# Base URLs use the custom domain so the GitHub OAuth callback matches.
 app:
-  baseUrl: https://${VERCEL_URL}
+  baseUrl: https://backstage.modernizeutah.org
   title: Modernize Utah
   description: Modernize Utah is a Non-Profit organization that helps non-profits, community organizations, and schools modernize their technology stack.
 
 backend:
-  baseUrl: https://${VERCEL_URL}
+  baseUrl: https://backstage.modernizeutah.org
   cors:
-    origin: https://${VERCEL_URL}
+    origin: https://backstage.modernizeutah.org
   # Neon gives this project one database. Each plugin gets its own schema.
   database:
     knexConfig:
