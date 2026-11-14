@@ -27,10 +27,10 @@ app:
 
   packageName: example-app
 
-  routes:
-    bindings:
-      catalog.viewTechDoc: techdocs.docRoot
-      org.catalogIndex: catalog.catalogIndex
+  # routes:
+  #   bindings:
+  #     catalog.viewTechDoc: techdocs.docRoot
+  #     org.catalogIndex: catalog.catalogIndex
 
   pluginOverrides:
     - match:
