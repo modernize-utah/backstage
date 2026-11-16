@@ -19,6 +19,9 @@ import {
   coreServices,
   createBackendFeatureLoader,
 } from '@backstage/backend-plugin-api';
+import { installMigrationLockGuard } from './migrationLock';
+
+installMigrationLockGuard();
 
 const backend = createBackend();
 
