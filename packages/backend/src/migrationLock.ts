@@ -35,10 +35,6 @@ type MigratorInstance = {
         query: (sql: string, bindings: unknown[]) => Promise<unknown>;
       }>;
       releaseConnection: (connection: unknown) => Promise<unknown>;
-      query: (
-        connection: unknown,
-        query: { sql: string; bindings: unknown[] },
-      ) => Promise<unknown>;
     };
   };
   forceFreeMigrationsLock: (config?: MigrationConfig) => Promise<void>;
@@ -48,6 +44,12 @@ type LatestFn = (
   this: MigratorInstance,
   config?: MigrationConfig,
 ) => Promise<unknown>;
+
+type MigratorConstructor = {
+  prototype: {
+    latest: LatestFn & { __migrationLockGuard?: boolean };
+  };
+};
 
 const ATTEMPTS_BEFORE_UNLOCK = 3;
 const RETRY_DELAY_MS = 2000;
@@ -107,6 +109,33 @@ async function withAdvisoryLock<T>(
   }
 }
 
+function loadMigrator(): MigratorConstructor {
+  const exported = requireFromBackendDefaults(
+    'knex/lib/migrations/migrate/Migrator',
+  ) as MigratorConstructor | { Migrator: MigratorConstructor };
+
+  if (
+    typeof exported === 'function' &&
+    exported.prototype &&
+    typeof exported.prototype.latest === 'function'
+  ) {
+    return exported;
+  }
+
+  if (
+    exported &&
+    typeof exported === 'object' &&
+    'Migrator' in exported &&
+    typeof exported.Migrator === 'function' &&
+    exported.Migrator.prototype &&
+    typeof exported.Migrator.prototype.latest === 'function'
+  ) {
+    return exported.Migrator;
+  }
+
+  throw new Error('Could not load knex Migrator.prototype.latest');
+}
+
 /**
  * Vercel starts a second container when several requests arrive together.
  * Knex refuses the migration lock immediately, and a container that dies
@@ -114,46 +143,50 @@ async function withAdvisoryLock<T>(
  * then release the lock once this process is the only one migrating.
  */
 export function installMigrationLockGuard(): void {
-  const Migrator = requireFromBackendDefaults(
-    'knex/lib/migrations/migrate/Migrator',
-  ) as { prototype: { latest: LatestFn & { __migrationLockGuard?: boolean } } };
+  try {
+    const Migrator = loadMigrator();
+    const originalLatest = Migrator.prototype.latest;
+    if (originalLatest.__migrationLockGuard) {
+      return;
+    }
 
-  const originalLatest = Migrator.prototype.latest;
-  if (originalLatest.__migrationLockGuard) {
-    return;
-  }
-
-  const guardedLatest: LatestFn & { __migrationLockGuard?: boolean } =
-    async function guardedLatest(this: MigratorInstance, config) {
-      const run = () => originalLatest.call(this, config);
-      if (!isPostgres(this)) {
-        return run();
-      }
-
-      return withAdvisoryLock(this, lockKey(config), async () => {
-        for (let attempt = 1; attempt <= ATTEMPTS_BEFORE_UNLOCK; attempt++) {
-          try {
-            return await run();
-          } catch (error) {
-            if (!isMigrationLocked(error)) {
-              throw error;
-            }
-            if (attempt === ATTEMPTS_BEFORE_UNLOCK) {
-              console.warn(
-                `Releasing a stale migration lock for ${lockLabel(config)}`,
-              );
-              await this.forceFreeMigrationsLock(config);
-              return run();
-            }
-            console.warn(
-              `Migration table is locked for ${lockLabel(config)}; waiting for the other instance`,
-            );
-            await delay(RETRY_DELAY_MS);
-          }
+    const guardedLatest: LatestFn & { __migrationLockGuard?: boolean } =
+      async function guardedLatest(this: MigratorInstance, config) {
+        const run = () => originalLatest.call(this, config);
+        if (!isPostgres(this)) {
+          return run();
         }
-        return run();
-      });
-    };
-  guardedLatest.__migrationLockGuard = true;
-  Migrator.prototype.latest = guardedLatest;
+
+        return withAdvisoryLock(this, lockKey(config), async () => {
+          for (let attempt = 1; attempt <= ATTEMPTS_BEFORE_UNLOCK; attempt++) {
+            try {
+              return await run();
+            } catch (error) {
+              if (!isMigrationLocked(error)) {
+                throw error;
+              }
+              if (attempt === ATTEMPTS_BEFORE_UNLOCK) {
+                console.warn(
+                  `Releasing a stale migration lock for ${lockLabel(config)}`,
+                );
+                await this.forceFreeMigrationsLock(config);
+                return run();
+              }
+              console.warn(
+                `Migration table is locked for ${lockLabel(config)}; waiting for the other instance`,
+              );
+              await delay(RETRY_DELAY_MS);
+            }
+          }
+          return run();
+        });
+      };
+    guardedLatest.__migrationLockGuard = true;
+    Migrator.prototype.latest = guardedLatest;
+  } catch (error) {
+    console.warn(
+      'Skipping migration lock guard; Knex Migrator could not be patched',
+      error,
+    );
+  }
 }
